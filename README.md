@@ -24,10 +24,11 @@ Run-time functionality requires installation of Resemble AI's ChatterboxTTS pyth
 - clone the repo
 - cd ytts
 - add any desired reference files to ./voices and add them to vmap.json for easy reference
-- export CBOX_VENV to identify the location of your ChatterboxTTS venv
-- export CBOX_PORT to specify the port you'd like the server to listen on
+- export CBOX_VENV to identify the location of your ChatterboxTTS venv, e.g., "$HOME/AI/CBox/chatterbox_venv/"
+- export CBOX_PORT to specify the port you'd like the server to listen on, e.g., "9100"
 - run ./scripts/ytts_server.sh
 - if desired, run ./scripts/ytts_client.sh to test
+- session interaction is written to ytts_server.log by default
 
 In-line tags are supported for ChatterboxTTS parameters like exaggeration, pacing and reference audio (voice clone). See the file token_test_messages.txt for examples.
 
