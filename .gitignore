@@ -1,0 +1,7 @@
+*.log
+voices/M*.wav
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
