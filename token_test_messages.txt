@@ -1,28 +1,28 @@
 This is a test of the pause token. You should hear a five second delay, starting... now. [pause: 5s] That was five seconds.
 Pause without the optional s suffix, starting... now. [pause: 2] That was two seconds.
-Fractional pause should truncate 2.9 to 2 seconds, starting... now. [pause: 2.9s] That was an adjusted pause.
-Zero pause should be adjusted up to 1 second, starting... now. [pause: 0] That was an adjusted one second pause.
-Negative pause should be adjusted up to 1 second, starting... now. [pause: -3s] That was an adjusted one second pause.
+Fractional pause should last 2.9 seconds, starting... now. [pause: 2.9s] That was two point nine seconds.
+Zero pause should be ignored, starting... now. [pause: 0] That should have been no pause.
+Negative pause should be ignored, starting... now. [pause: -3s] That should have been no pause.
+A pause longer than 30 seconds clamps to 30, starting... now. [pause: 100s] That was thirty seconds.
 Random pause between 2 and 5 seconds, starting... now. [rpause: 2-5s] That was a random pause.
 Random pause with reversed range should swap and adjust, starting... now. [rpause: 5-2] That was a swapped random pause.
 
 The previous blank line should have been a one second pause.
 [vol: 0.5] Volume is now one half. This line should be quieter than the default.
-[vol: 1.0] This volume token is out of range exclusive and should be ignored. Volume should stay at one half.
-[vol: 0.0] This volume token is also out of range exclusive and should be ignored.
+[vol: 1.0] Volume is now full scale.
+[vol: 0.0] Volume is now muted.
 [vol: 0.8] Volume is now point eight.
 [pace: 0.4] Pacing is now point four.
-[pace: 1.0] This pace token is out of range exclusive and should be ignored.
-[pace: 0.0] This pace token is also out of range exclusive and should be ignored.
+[pace: 1.0] Pacing is now one.
+[pace: 0.0] Pacing is now zero.
 [exp: 0.8] Exaggeration is now point eight.
-[exp: 0.25] This exaggeration token is out of range exclusive and should be ignored.
-[exp: 2.0] This exaggeration token is also out of range exclusive and should be ignored.
+[exp: 0.25] Exaggeration is now the low endpoint.
+[exp: 2.0] Exaggeration is now the high endpoint.
 [seed: 7] Seed is now seven.
 [seed: 0] Seed zero should be adjusted up to one.
-[aref: ./voices/ytts_ref_1.wav] Reference audio set to ytts_ref_1.wav. This line should use that voice.
-[aref: Alan] Reference audio set to ytts_ref_1.wav, mapped to 'Alan' in ./voices/vmap.json. This line should use that voice.
-[aref: /no/such/file.wav] Bad aref path should be logged and ignored. Voice should stay as ytts_ref_1.
-[aref: ./README.md] Non-WAV aref should be logged and ignored.
+[aref: Alan] Reference audio set to the file mapped to 'Alan' in voices/vmap.json. This line should use that voice.
+[aref: /no/such/file.wav] A path is not a voice name and should be ignored. Voice should stay as Alan.
+[aref: ./README.md] A non-name aref should be ignored. Voice should stay as Alan.
 [foo: bar] Unrecognized token should be logged and ignored. This sentence should still be spoken.
 [pause: banana] Malformed pause token should be logged and ignored. This sentence should still be spoken.
 [vol: abc] Malformed volume token should be logged and ignored.

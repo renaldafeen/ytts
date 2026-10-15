@@ -8,6 +8,8 @@ except ImportError:
     readline = None
 
 HISTORY_LIMIT = 1000
+REQUEST_TIMEOUT = 300
+DEFAULT_PORT = "9126"
 
 
 def _history_last():
@@ -58,9 +60,66 @@ def read_prompt(prompt="Prompt: "):
     return stripped
 
 
-def loop_yttss(url="http://localhost:" + os.environ['CBOX_PORT'] + "/yttss"):
+def default_url():
+    """Local server URL. CBOX_PORT is optional and is read when called."""
+    port = os.environ.get("CBOX_PORT", DEFAULT_PORT)
+    return f"http://127.0.0.1:{port}/yttss"
+
+
+def _directive_from_set(text):
+    parts = text[4:].split()
+    directive = {}
+    for part in parts:
+        key, value = part.split("=", 1)
+        if key == "voice":
+            directive[key] = value
+        else:
+            directive[key] = float(value)
+    return directive
+
+
+def interpret_line(user_input):
+    """Return (action, payload). quit sends nothing. shutdown stops the server."""
+    lowered = user_input.lower()
+    if lowered == "quit":
+        return "quit", None
+    if lowered == "shutdown-server":
+        return "shutdown", {"directive": {"shutdown": True}}
+    if lowered.startswith("set "):
+        return "send", {"directive": _directive_from_set(user_input)}
+    return "send", {"text": user_input}
+
+
+def _auth_headers():
+    headers = {"Content-Type": "application/json"}
+    token = os.environ.get("YTTS_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def post_payload(url, payload):
+    response = requests.post(
+        url, json=payload, headers=_auth_headers(), timeout=REQUEST_TIMEOUT
+    )
+    if response.status_code == 401:
+        print("unauthorized")
+        if not os.environ.get("YTTS_TOKEN"):
+            print("YTTS_TOKEN is required")
+        return response
+    print(f"Server response: {response.json()}")
+    return response
+
+
+def loop_yttss(url=None):
     """Persistent client to send text prompts or directives to TTS server."""
-    print("TTS Client: Type your prompt, or 'set volume=X exaggeration=Y pacing=Z' (or 'quit' to exit)")
+    if url is None:
+        url = default_url()
+    print(
+        "TTS Client: type a prompt, "
+        "'set volume=X exaggeration=Y pacing=Z seed=S voice=Name', "
+        "'shutdown-server' to stop the server, or 'quit' to exit this client"
+    )
     if readline:
         readline.set_history_length(HISTORY_LIMIT)
     else:
@@ -69,44 +128,37 @@ def loop_yttss(url="http://localhost:" + os.environ['CBOX_PORT'] + "/yttss"):
     while True:
         try:
             user_input = read_prompt("Prompt: ")
-
-            if user_input.lower() == "quit":
-                payload = {"text": "quit"}
-                response = requests.post(url, json=payload, headers={
-                                         "Content-Type": "application/json"})
-                print(f"Server response: {response.json()}")
+            action, payload = interpret_line(user_input)
+            if action == "quit":
                 break
-
-            # Check for directive (e.g., "set volume=0.8 exaggeration=0.6 pacing=0.9")
-            if user_input.lower().startswith("set "):
-                parts = user_input[4:].split()
-                directive = {}
-                for part in parts:
-                    key, value = part.split("=")
-                    directive[key] = float(value)
-                payload = {"directive": directive}
-                response = requests.post(url, json=payload, headers={
-                                         "Content-Type": "application/json"})
-                print(f"Server response: {response.json()}")
-                continue
-
-            # Normal text prompt
-            payload = {"text": user_input}
-            response = requests.post(url, json=payload, headers={
-                                     "Content-Type": "application/json"})
-            print(f"Server response: {response.json()}")
-
+            post_payload(url, payload)
+            if action == "shutdown":
+                break
         except requests.RequestException as e:
             print(f"Error connecting to server: {e}")
         except json.JSONDecodeError:
             print("Error: Invalid response from server")
         except ValueError:
             print(
-                "Error: Invalid directive format. Use 'set volume=X exaggeration=Y pacing=Z'")
+                "Error: Invalid directive format. "
+                "Use 'set volume=X exaggeration=Y pacing=Z seed=S voice=Name'"
+            )
         except KeyboardInterrupt:
             print("\nExiting")
             break
 
 
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description="ytts test client")
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="Server URL. Defaults to http://127.0.0.1:$CBOX_PORT/yttss",
+    )
+    args = parser.parse_args(argv)
+    loop_yttss(args.url if args.url else default_url())
+
+
 if __name__ == "__main__":
-    loop_yttss()
+    main()

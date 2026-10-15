@@ -8,10 +8,11 @@ import json
 import os
 import tempfile
 import unittest
+import wave
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from ytts_vmap import load_voice_map, resolve_aref_target
+from ytts_vmap import confine_voice_map, load_voice_map, resolve_aref_target
 
 
 def _load_capturing(path):
@@ -144,22 +145,22 @@ class ResolveArefTargetTests(unittest.TestCase):
             "Nobody": "/tmp/nonexistentfile.wav",
         }
 
-    def test_wav_extension_skips_map(self):
+    def test_wav_extension_is_not_a_path(self):
         self.assertEqual(
             resolve_aref_target("/x/voice.wav", self.voice_map),
-            ("path", "/x/voice.wav"),
+            ("missing", None),
         )
 
-    def test_wav_extension_case_insensitive(self):
+    def test_wav_extension_case_insensitive_is_not_a_path(self):
         self.assertEqual(
             resolve_aref_target("/x/voice.WAV", self.voice_map),
-            ("path", "/x/voice.WAV"),
+            ("missing", None),
         )
 
-    def test_wav_path_not_looked_up_even_if_key_exists(self):
+    def test_wav_suffix_is_not_looked_up_as_a_path(self):
         self.assertEqual(
             resolve_aref_target("Nobody.wav", self.voice_map),
-            ("path", "Nobody.wav"),
+            ("missing", None),
         )
 
     def test_mapped_path(self):
@@ -186,22 +187,22 @@ class ResolveArefTargetTests(unittest.TestCase):
             ("default", None),
         )
 
-    def test_missing_key_uses_default(self):
+    def test_missing_key_is_missing(self):
         self.assertEqual(
             resolve_aref_target("Unknown", self.voice_map),
-            ("default", None),
+            ("missing", None),
         )
 
-    def test_empty_map_uses_default(self):
+    def test_empty_map_is_missing(self):
         self.assertEqual(
             resolve_aref_target("Vera", {}),
-            ("default", None),
+            ("missing", None),
         )
 
     def test_lookup_is_case_sensitive(self):
         self.assertEqual(
             resolve_aref_target("vera", self.voice_map),
-            ("default", None),
+            ("missing", None),
         )
 
     def test_strips_target_whitespace(self):
@@ -209,6 +210,83 @@ class ResolveArefTargetTests(unittest.TestCase):
             resolve_aref_target("  Vera  ", self.voice_map),
             ("path", "./voices/M1.wav"),
         )
+
+
+def _write_wav(path, payload=b"\x00\x00" * 80):
+    with wave.open(path, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(8000)
+        handle.writeframes(payload)
+
+
+class ConfineVoiceMapTests(unittest.TestCase):
+    def test_keeps_wav_inside_voices_and_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            voices = os.path.join(tmp, "voices")
+            os.makedirs(voices)
+            wav_path = os.path.join(voices, "a.wav")
+            _write_wav(wav_path)
+            voice_map = {"Ann": "./voices/a.wav", "Mark": "default"}
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = confine_voice_map(voice_map, voices)
+            self.assertEqual(result["Mark"], "default")
+            self.assertEqual(result["Ann"], os.path.realpath(wav_path))
+            self.assertIn("Voice map confined: Ann ->", buf.getvalue())
+
+    def test_drops_path_outside_voices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            voices = os.path.join(tmp, "voices")
+            os.makedirs(voices)
+            outside = os.path.join(tmp, "outside.wav")
+            _write_wav(outside)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = confine_voice_map({"Out": "../outside.wav"}, voices)
+            self.assertEqual(result, {})
+            self.assertIn("outside voices", buf.getvalue())
+
+    def test_drops_symlink_that_escapes_voices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            voices = os.path.join(tmp, "voices")
+            os.makedirs(voices)
+            outside = os.path.join(tmp, "secret.wav")
+            _write_wav(outside)
+            link = os.path.join(voices, "link.wav")
+            os.symlink(outside, link)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = confine_voice_map({"Link": "./voices/link.wav"}, voices)
+            self.assertNotIn("Link", result)
+            self.assertIn("outside voices", buf.getvalue())
+
+    def test_drops_file_over_size_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            voices = os.path.join(tmp, "voices")
+            os.makedirs(voices)
+            wav_path = os.path.join(voices, "big.wav")
+            _write_wav(wav_path, payload=b"\x00\x00" * 500)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = confine_voice_map(
+                    {"Big": "./voices/big.wav"}, voices, max_bytes=10
+                )
+            self.assertEqual(result, {})
+            self.assertIn("too large", buf.getvalue())
+
+    def test_drops_non_wav_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            voices = os.path.join(tmp, "voices")
+            os.makedirs(voices)
+            text_path = os.path.join(voices, "notes.txt")
+            with open(text_path, "w", encoding="utf-8") as handle:
+                handle.write("hello")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                result = confine_voice_map({"Notes": "./voices/notes.txt"}, voices)
+            self.assertEqual(result, {})
+            self.assertIn("not a wav", buf.getvalue())
 
 
 if __name__ == "__main__":

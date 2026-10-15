@@ -1,4 +1,4 @@
-"""Parse inline Whisper tokens from incoming TTS text.
+"""Parse ytts inline tokens from incoming TTS text.
 
 Tokens are square-bracket spans that are never spoken. This module has no
 TTS / Flask / torch imports so it can be exercised without the Chatterbox venv.
@@ -30,9 +30,14 @@ RPAUSE_VALUE_RE = re.compile(
 
 KNOWN_TOKENS = ("pause", "rpause", "vol", "pace", "exp", "seed", "aref")
 
-VOL_RANGE = (0.0, 1.0)
-PACE_RANGE = (0.0, 1.0)
-EXP_RANGE = (0.25, 2.0)
+VOL_MIN, VOL_MAX = 0.0, 1.0
+PACE_MIN, PACE_MAX = 0.0, 1.0
+EXP_MIN, EXP_MAX = 0.25, 2.0
+MAX_PAUSE_SECONDS = 30.0
+# Shipped references are about 3–8 MB. Chatterbox uses the first 10 seconds
+# after the file is opened, so the cap only has to stop a huge read.
+MAX_REF_BYTES = 16 * 1024 * 1024
+TTS_MAX_CHARS = 300
 
 
 def normalize_int(incoming):
@@ -84,7 +89,38 @@ def _ignore(raw, reason):
     return {"kind": "ignore", "reason": reason, "raw": raw}
 
 
-def _parse_exclusive_float(raw, rest, kind, lo, hi):
+def closed_float_ok(value, lo, hi):
+    """True when value is a finite real number inside the closed interval.
+
+    Booleans are rejected. bool is a subclass of int, so a JSON true would
+    otherwise pass a numeric range check.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    value = float(value)
+    return math.isfinite(value) and lo <= value <= hi
+
+
+def _parse_pause_seconds(number_text):
+    """Return (seconds, adjusted) or None when the duration must be ignored.
+
+    Positive finite values are kept. Values above MAX_PAUSE_SECONDS clamp to
+    that ceiling. Zero, negative, and non-finite values are rejected.
+    """
+    try:
+        value = float(number_text)
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    adjusted = False
+    if value > MAX_PAUSE_SECONDS:
+        value = MAX_PAUSE_SECONDS
+        adjusted = True
+    return value, adjusted
+
+
+def _parse_closed_float(raw, rest, kind, lo, hi):
     match = NUMBER_RE.match(rest.strip())
     if not match:
         return _ignore(raw, "malformed")
@@ -92,8 +128,8 @@ def _parse_exclusive_float(raw, rest, kind, lo, hi):
         value = float(match.group(1))
     except ValueError:
         return _ignore(raw, "malformed")
-    if not math.isfinite(value) or not (lo < value < hi):
-        return _ignore(raw, f"out of range ({lo}, {hi}) exclusive")
+    if not math.isfinite(value) or value < lo or value > hi:
+        return _ignore(raw, f"out of range [{lo}, {hi}]")
     return {"kind": kind, "value": value, "raw": raw}
 
 
@@ -117,15 +153,15 @@ def parse_one_token(raw):
         match = PAUSE_VALUE_RE.match(rest.strip())
         if not match:
             return _ignore(raw, "malformed")
-        normalized = normalize_int(match.group(1))
-        if normalized is None:
+        parsed = _parse_pause_seconds(match.group(1))
+        if parsed is None:
             return _ignore(raw, "malformed")
-        seconds, adjusted, incoming = normalized
+        seconds, adjusted = parsed
         return {
             "kind": "pause",
             "seconds": seconds,
             "adjusted": adjusted,
-            "incoming": incoming,
+            "incoming": match.group(1),
             "raw": raw,
         }
 
@@ -133,12 +169,12 @@ def parse_one_token(raw):
         match = RPAUSE_VALUE_RE.match(rest.strip())
         if not match:
             return _ignore(raw, "malformed")
-        low_norm = normalize_int(match.group(1))
-        high_norm = normalize_int(match.group(2))
-        if low_norm is None or high_norm is None:
+        low_parsed = _parse_pause_seconds(match.group(1))
+        high_parsed = _parse_pause_seconds(match.group(2))
+        if low_parsed is None or high_parsed is None:
             return _ignore(raw, "malformed")
-        low, low_adj, low_in = low_norm
-        high, high_adj, high_in = high_norm
+        low, low_adj = low_parsed
+        high, high_adj = high_parsed
         swapped = False
         if low > high:
             low, high = high, low
@@ -148,16 +184,16 @@ def parse_one_token(raw):
             "low": low,
             "high": high,
             "adjusted": low_adj or high_adj or swapped,
-            "incoming": f"{low_in}-{high_in}",
+            "incoming": f"{match.group(1)}-{match.group(2)}",
             "raw": raw,
         }
 
     if name == "vol":
-        return _parse_exclusive_float(raw, rest, "vol", *VOL_RANGE)
+        return _parse_closed_float(raw, rest, "vol", VOL_MIN, VOL_MAX)
     if name == "pace":
-        return _parse_exclusive_float(raw, rest, "pace", *PACE_RANGE)
+        return _parse_closed_float(raw, rest, "pace", PACE_MIN, PACE_MAX)
     if name == "exp":
-        return _parse_exclusive_float(raw, rest, "exp", *EXP_RANGE)
+        return _parse_closed_float(raw, rest, "exp", EXP_MIN, EXP_MAX)
 
     if name == "seed":
         match = NUMBER_RE.match(rest.strip())

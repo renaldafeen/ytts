@@ -6,6 +6,9 @@ no TTS / Flask / torch imports so it can be exercised without Chatterbox.
 
 import json
 import os
+import wave
+
+from ytts_tokens import MAX_REF_BYTES
 
 
 def load_voice_map(path):
@@ -62,9 +65,11 @@ def load_voice_map(path):
 
 
 def resolve_aref_target(target, voice_map):
-    """Resolve an [aref:] target to a WAV path or the default voice.
+    """Resolve an [aref:] target to a map entry.
 
-    Returns (\"path\", path_string) or (\"default\", None).
+    Returns (\"path\", path_string), (\"default\", None), or (\"missing\", None).
+    Only map keys match. A value that ends in .wav is not treated as a path.
+    \"default\" is returned only when the mapped value is that sentinel.
     """
     if target is None:
         target = ""
@@ -72,18 +77,86 @@ def resolve_aref_target(target, voice_map):
         target = str(target)
     target = target.strip()
 
-    if target.lower().endswith(".wav"):
-        return ("path", target)
+    if not voice_map or target not in voice_map:
+        return ("missing", None)
 
-    if not voice_map:
+    value = voice_map[target]
+    if isinstance(value, str):
+        value = value.strip()
+    if value == "default":
         return ("default", None)
+    return ("path", value)
 
-    if target in voice_map:
-        value = voice_map[target]
-        if isinstance(value, str):
-            value = value.strip()
-        if value == "default":
-            return ("default", None)
-        return ("path", value)
 
-    return ("default", None)
+def _repo_root_for_voices(voices_root):
+    return os.path.dirname(os.path.realpath(voices_root))
+
+
+def resolved_wav_path(value, voices_root, max_bytes=MAX_REF_BYTES, confine=True):
+    """Return a real WAV path, or None when the value cannot be used.
+
+    Relative paths resolve against the parent of voices_root (the repo root).
+    When confine is true, the real path must sit inside voices_root. Symlinks
+    are followed by realpath, so a link that escapes the directory is rejected.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    expanded = os.path.expanduser(value.strip())
+    if expanded == "" or expanded == "default":
+        return None
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(_repo_root_for_voices(voices_root), expanded)
+    real = os.path.realpath(expanded)
+
+    if confine:
+        root = os.path.realpath(voices_root)
+        prefix = root + os.sep
+        if real != root and not real.startswith(prefix):
+            print(f"Voice map rejected: outside voices: {value}")
+            return None
+
+    if not real.lower().endswith(".wav"):
+        print(f"Voice map rejected: not a wav: {value}")
+        return None
+    if not os.path.isfile(real):
+        print(f"Voice map rejected: file not found: {value}")
+        return None
+    try:
+        size = os.path.getsize(real)
+    except OSError as exc:
+        print(f"Voice map rejected: cannot stat {value}: {exc}")
+        return None
+    if size > max_bytes:
+        print(f"Voice map rejected: too large: {value}")
+        return None
+    try:
+        with wave.open(real, "rb"):
+            pass
+    except (wave.Error, OSError, EOFError) as exc:
+        print(f"Voice map rejected: cannot open wav {value}: {exc}")
+        return None
+    return real
+
+
+def confine_voice_map(voice_map, voices_root, max_bytes=MAX_REF_BYTES):
+    """Keep default sentinels and WAV paths that stay inside voices_root.
+
+    Rejected entries are logged and omitted. load_voice_map is unchanged;
+    call this after it.
+    """
+    if not voice_map:
+        return {}
+    result = {}
+    for key, value in voice_map.items():
+        if isinstance(value, str) and value.strip() == "default":
+            result[key] = "default"
+            print(f"Voice map confined: {key} -> default")
+            continue
+        real = resolved_wav_path(value, voices_root, max_bytes=max_bytes, confine=True)
+        if real is None:
+            continue
+        result[key] = real
+        print(f"Voice map confined: {key} -> {real}")
+    return result

@@ -3,12 +3,13 @@
 Run from client/: python -m unittest test_ytts_client.py
 """
 
+import os
 import unittest
 from unittest.mock import patch
 
 import readline
 
-from ytts_client import _normalize_history, read_prompt
+from ytts_client import _normalize_history, default_url, interpret_line, read_prompt
 
 
 def _history_list():
@@ -82,6 +83,39 @@ class ReadPromptTests(unittest.TestCase):
         with patch("builtins.input", return_value="hello"):
             read_prompt()
         self.assertEqual(_history_list(), ["hello"])
+
+
+class InterpretLineTests(unittest.TestCase):
+    def test_quit_sends_nothing(self):
+        self.assertEqual(interpret_line("quit"), ("quit", None))
+        self.assertEqual(interpret_line("QUIT"), ("quit", None))
+
+    def test_shutdown_server_is_a_directive(self):
+        action, payload = interpret_line("shutdown-server")
+        self.assertEqual(action, "shutdown")
+        self.assertEqual(payload, {"directive": {"shutdown": True}})
+
+    def test_normal_line_is_text(self):
+        self.assertEqual(interpret_line("hello"), ("send", {"text": "hello"}))
+
+    def test_set_keeps_voice_as_text_and_numbers_as_floats(self):
+        _action, payload = interpret_line("set volume=0.5 voice=Alan seed=7")
+        self.assertEqual(
+            payload,
+            {"directive": {"volume": 0.5, "voice": "Alan", "seed": 7.0}},
+        )
+
+
+class DefaultUrlTests(unittest.TestCase):
+    def test_without_cbox_port(self):
+        env = os.environ.copy()
+        env.pop("CBOX_PORT", None)
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(default_url(), "http://127.0.0.1:9126/yttss")
+
+    def test_uses_cbox_port_when_set(self):
+        with patch.dict(os.environ, {"CBOX_PORT": "9100"}):
+            self.assertEqual(default_url(), "http://127.0.0.1:9100/yttss")
 
 
 if __name__ == "__main__":

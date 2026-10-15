@@ -1,0 +1,8 @@
+# Versions from the Chatterbox virtual environment this server is launched with.
+# scripts/ytts_server.sh activates that venv. It does not pip-install this file.
+chatterbox-tts==0.1.2
+Flask==3.1.1
+numpy==2.2.6
+pygame==2.6.1
+requests==2.32.4
+torch==2.6.0

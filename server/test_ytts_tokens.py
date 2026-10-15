@@ -5,7 +5,7 @@ Run from server/: python -m unittest test_ytts_tokens.py
 
 import unittest
 
-from ytts_tokens import chunk_speak_text, parse_tokens
+from ytts_tokens import NUMPY_SEED_MAX, chunk_speak_text, parse_tokens
 
 
 class ChunkSpeakTextTests(unittest.TestCase):
@@ -92,6 +92,87 @@ class ParseThenChunkTests(unittest.TestCase):
         self.assertEqual(events[2]["text"], "World")
         self.assertEqual(chunk_speak_text(events[0]["text"], 20), ["Hello"])
         self.assertEqual(chunk_speak_text(events[2]["text"], 20), ["World"])
+
+
+def _only(text):
+    events = parse_tokens(text)
+    if len(events) != 1:
+        raise AssertionError(f"expected one event, got {events}")
+    return events[0]
+
+
+class PauseParseTests(unittest.TestCase):
+    def test_fractional_pause_is_kept(self):
+        event = _only("[pause: 0.5s]")
+        self.assertEqual(event["kind"], "pause")
+        self.assertEqual(event["seconds"], 0.5)
+        self.assertFalse(event["adjusted"])
+
+    def test_longer_fraction_is_not_truncated(self):
+        event = _only("[pause: 2.9s]")
+        self.assertEqual(event["seconds"], 2.9)
+        self.assertFalse(event["adjusted"])
+
+    def test_pause_above_cap_clamps(self):
+        event = _only("[pause: 100s]")
+        self.assertEqual(event["seconds"], 30)
+        self.assertTrue(event["adjusted"])
+
+    def test_zero_negative_and_garbage_are_ignored(self):
+        for text in ("[pause: 0]", "[pause: -3s]", "[pause: banana]"):
+            event = _only(text)
+            self.assertEqual(event["kind"], "ignore", text)
+
+
+class RpauseParseTests(unittest.TestCase):
+    def test_reversed_range_swaps(self):
+        event = _only("[rpause: 5-2]")
+        self.assertEqual(event["kind"], "rpause")
+        self.assertEqual(event["low"], 2)
+        self.assertEqual(event["high"], 5)
+        self.assertTrue(event["adjusted"])
+
+    def test_high_end_above_cap_clamps(self):
+        event = _only("[rpause: 1-100s]")
+        self.assertEqual(event["low"], 1)
+        self.assertEqual(event["high"], 30)
+        self.assertTrue(event["adjusted"])
+
+
+class ClosedRangeParseTests(unittest.TestCase):
+    def test_volume_endpoints_accepted(self):
+        for text, value in (("[vol: 0]", 0.0), ("[vol: 1]", 1.0), ("[vol: 0.5]", 0.5)):
+            event = _only(text)
+            self.assertEqual(event["kind"], "vol", text)
+            self.assertEqual(event["value"], value)
+
+    def test_volume_outside_and_non_numeric_ignored(self):
+        for text in ("[vol: 1.5]", "[vol: true]", "[vol: -0.1]"):
+            self.assertEqual(_only(text)["kind"], "ignore", text)
+
+    def test_pace_endpoints_accepted_and_outside_ignored(self):
+        self.assertEqual(_only("[pace: 0]")["kind"], "pace")
+        self.assertEqual(_only("[pace: 1]")["value"], 1.0)
+        self.assertEqual(_only("[pace: 1.1]")["kind"], "ignore")
+
+    def test_exp_endpoints_accepted_and_outside_ignored(self):
+        self.assertEqual(_only("[exp: 0.25]")["kind"], "exp")
+        self.assertEqual(_only("[exp: 2.0]")["value"], 2.0)
+        self.assertEqual(_only("[exp: 0.2]")["kind"], "ignore")
+        self.assertEqual(_only("[exp: 2.1]")["kind"], "ignore")
+
+
+class SeedParseTests(unittest.TestCase):
+    def test_zero_adjusts_to_one(self):
+        event = _only("[seed: 0]")
+        self.assertEqual(event["kind"], "seed")
+        self.assertEqual(event["value"], 1)
+        self.assertTrue(event["adjusted"])
+
+    def test_above_numpy_max_clamps(self):
+        event = _only("[seed: 9999999999]")
+        self.assertEqual(event["value"], NUMPY_SEED_MAX)
+        self.assertTrue(event["adjusted"])
 
 
 if __name__ == "__main__":
