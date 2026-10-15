@@ -1,5 +1,6 @@
 *.log
 voices/M*.wav
+PLAN*.*
 
 # Python
 __pycache__/
