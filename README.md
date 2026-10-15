@@ -2,19 +2,19 @@
 
 `ytts` is a TTS system that comprises a TTS Server module and test Client, using the ChatterboxTTS API.
 
-Client: client/ytts_client.py - Server test CLI, with Up/Down arrow keys to recall
+- Client: client/ytts_client.py - Server test CLI, with Up/Down arrow keys to recall
     input lines from the current session (history is not persisted). Provides a code reference
     for calling the server.
 
-Server: server/ytts_server.py - exposes a localhost endpoint to listen for incoming TTS and parameter change requests.
+- Server: server/ytts_server.py - exposes a localhost endpoint to listen for incoming TTS and parameter change requests.
     Incoming POST text is token-parsed first (server/ytts_tokens.py). Speak events are then
     chunked to TTS_MAX_CHARS (300), the Chatterbox limit, preferring sentence boundaries
     and never splitting inside [ ... ] tokens. One POST may enqueue many speech and silence
     buffers. Clients do not need to know the 300-character limit.
 
 Start scripts:
-    ytts_server.sh - activates the python virtual environment, starts ytts_server.py with specified parameters
-    ytts_client.sh - starts up the ytts_client.py CLI
+- ytts_server.sh - activates the python virtual environment, starts ytts_server.py with specified parameters
+- ytts_client.sh - starts up the ytts_client.py CLI
 
 Run-time functionality requires installation of Resemble AI's ChatterboxTTS python virtual environment.
 - see https://github.com/resemble-ai/chatterbox. This code is currently based on v0.1.2.
