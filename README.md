@@ -3,7 +3,8 @@
 `ytts` is a TTS system that comprises a TTS Server module and test Client, using the ChatterboxTTS API.
 
 Client: client/ytts_client.py - Server test CLI, with Up/Down arrow keys to recall
-    input lines from the current session (history is not persisted).
+    input lines from the current session (history is not persisted). Provides a code reference
+    for calling the server.
 
 Server: server/ytts_server.py - exposes a localhost endpoint to listen for incoming TTS and parameter change requests.
     Incoming POST text is token-parsed first (server/ytts_tokens.py). Speak events are then
@@ -15,7 +16,8 @@ Start scripts:
     ytts_server.sh - activates the python virtual environment, starts ytts_server.py with specified parameters
     ytts_client.sh - starts up the ytts_client.py CLI
 
-Run-time functionality requires installation of ChatterboxTTS python virtual environment.
+Run-time functionality requires installation of Resemble AI's ChatterboxTTS python virtual environment.
+- see https://github.com/resemble-ai/chatterbox. This code is currently based on v0.1.2.
 
 ### Steps:
 
@@ -23,7 +25,7 @@ Run-time functionality requires installation of ChatterboxTTS python virtual env
 - cd ytts
 - add any desired reference files to ./voices and add them to vmap.json for easy reference
 - export CBOX_VENV to identify the location of your ChatterboxTTS venv
-- export CBOX_PORT to specify the port you'd like to use
+- export CBOX_PORT to specify the port you'd like the server to listen on
 - run ./scripts/ytts_server.sh
 - if desired, run ./scripts/ytts_client.sh to test
 
